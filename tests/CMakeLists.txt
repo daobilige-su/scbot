@@ -1,0 +1,6 @@
+find_package(GTest REQUIRED)
+
+add_executable(test_pose_transformer test_pose_transformer.cpp)
+target_link_libraries(test_pose_transformer pose_transformer GTest::Main)
+gtest_discover_tests(test_pose_transformer WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
