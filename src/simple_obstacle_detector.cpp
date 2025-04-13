@@ -30,6 +30,8 @@ struct pc_bbox_res {
 pc_bbox_res compute_pc_2dbbox(pcl::PointCloud<pcl::PointXYZ>::Ptr pc_ptr);
 
 // class member function definitions
+
+// constructors
 SimpleObstacleDetector::SimpleObstacleDetector() {
   // init pc (pcl pointcloud must be initialized!!)
   pcl::PointCloud<pcl::PointXYZ>::Ptr empty_pc_ptr(
@@ -67,23 +69,6 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
 
   float ang_to_Z_ref = 40.0;
 
-  Eigen::Vector3f sp_plane_norm_ref(0, -0.707, 0.707);
-  float sp_plane_norm_diff_thr = 0.2;
-
-  float sp_det_range = 10.0;
-  float sub_pc_x_size = 0.2;
-  int sub_pc_min_pts = 50;
-
-  float sub_pc_top_z_ref = -0.55;
-  float sub_pc_top_z_ref_thr = 0.5;
-  int top_line_can_num = 5;
-
-  float panel_width = 4.0;
-
-  float gap_start_shift = 0.2;
-  float gap_det_range = 5.0;
-  float gap_det_res = 0.02;
-
   poseTransformer::poseTransformer transformer;
 
   // reset obstacle_objs_
@@ -116,24 +101,6 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
       CropBoxFilter(pc_roi_ptr_, pc_robot_frame_x_min, pc_robot_frame_x_max,
                     pc_robot_frame_y_min, pc_robot_frame_y_max,
                     pc_robot_frame_z_min, pc_robot_frame_z_max);
-
-  // pcl::CropBox<pcl::PointXYZ> boxFilter;
-  // boxFilter.setMin(Eigen::Vector4f(pc_robot_frame_x_min,
-  // pc_robot_frame_y_min,
-  //                                  pc_robot_frame_z_min, 1.0));
-  // boxFilter.setMax(Eigen::Vector4f(pc_robot_frame_x_max,
-  // pc_robot_frame_y_max,
-  //                                  pc_robot_frame_z_max, 1.0));
-  // boxFilter.setMin(filtermin);
-  // boxFilter.setMax(filtermax);
-  // boxFilter.setInputCloud(tmp_pc_ptr_);
-  // std::cout << PCL_VERSION << std::endl;
-  // std::cout<< boxFilter.getMin() << std::endl << boxFilter.getMax() <<
-  // std::endl; boxFilter.filter(*pc_roi_ptr_); pcl::PassThrough<pcl::PointXYZ>
-  // pass; pass.setInputCloud(pc_roi_ptr_); pass.setFilterFieldName("x");
-  // pass.setFilterLimits(pc_robot_frame_x_min, pc_robot_frame_x_max);
-  // pass.setNegative(true);
-  // pass.filter(*pc_roi_ptr_);
 
   // visualization
   {
@@ -188,8 +155,6 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
     }
   }
 
-
-
   // (4) extract solar panel plane model
   pcl::PointCloud<pcl::PointXYZ>::Ptr pc_remain_ptr(pc_no_ground_ptr);
   pcl::PointCloud<pcl::PointXYZ>::Ptr pc_sp_ptr(
@@ -224,6 +189,7 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
     seg.setInputCloud(pc_remain_ptr);
     seg.segment(*inliers, *coefficients);
 
+    // skip first N frame with all points on the XY plane
     if ((plane_found_num == 0) &&
         (inliers->indices.size() == pc_remain_ptr->size())) {
       std::cout << "SimpleObstacleDector: all points are on a plane, returning."
@@ -244,6 +210,7 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
       break;
     }
 
+    // extract plane points
     pcl::ExtractIndices<pcl::PointXYZ> extract; // Create the filtering object
     extract.setInputCloud(pc_remain_ptr);
     extract.setIndices(inliers);
@@ -252,6 +219,7 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
     extract.setNegative(true); // remove these points
     extract.filter(*pc_remain_ptr);
 
+    // check plane norm vector and compute its angle with Z axis
     Eigen::Vector3f plane_norm(coefficients->values[0], coefficients->values[1],
                                coefficients->values[2]);
     plane_norm = plane_norm / plane_norm.norm();
@@ -272,13 +240,17 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
       std::cout << "ang_to_Z: " << ang_to_Z << std::endl;
     }
 
+    // if norm vector's angle to Z axis is close to solar panel's angle,
+    // this point cloud is from solar pannel. Otherwise it is from obstacle
     if (abs(ang_to_Z - ang_to_Z_ref) < 5) {
+      // if it is from solar panel, we cluster it,
+      // since it can be from two panels next to each other
       pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(
           new pcl::search::KdTree<pcl::PointXYZ>);
       tree->setInputCloud(pc_tmp_ptr);
       std::vector<pcl::PointIndices> cluster_indices;
       pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
-      ec.setClusterTolerance(1.0); // 20cm
+      ec.setClusterTolerance(1.0); // 1m
       ec.setMinClusterSize(50);
       ec.setMaxClusterSize(25000);
       ec.setSearchMethod(tree);
@@ -299,11 +271,10 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
           std::cout << "PointCloud representing the Cluster: "
                     << cloud_cluster->size() << " data points." << std::endl;
         }
-        pc_sp_vec.emplace_back(*cloud_cluster);
+        pc_sp_vec.emplace_back(*cloud_cluster); // save to vector
       }
 
-      // pc_sp_vec.emplace_back(*pc_tmp_ptr);
-      if (debug_verbose_) {
+            if (debug_verbose_) {
         std::cout << "Is planner: True" << std::endl;
       }
     }else {
@@ -317,13 +288,14 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
       std::cout << "pc_remain_ptr size: " << pc_remain_ptr->size() << std::endl;
     }
 
-    if (pc_sp_vec.size() >= 5) {
+    if (pc_sp_vec.size() >= 5) { // we maximum store 5 pc from solar panel
       break;
     }
   }
 
-  *pc_non_sp_ptr += *pc_remain_ptr;
+  *pc_non_sp_ptr += *pc_remain_ptr; // it there is remaining pc, save to non sp
 
+  // (5) cluster non solar panel pointcloud based on euclidean coords
   // Creating the KdTree object for the search method of the extraction
   pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
   tree->setInputCloud(pc_non_sp_ptr);
@@ -358,6 +330,7 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
     if(j>=10){break;}
   }
 
+  // (6) visualize & save results
   {
     const std::lock_guard<std::mutex> lock(*pcl_viewer_mutex_ptr_);
 
@@ -471,16 +444,12 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
 
       obstacle_objs_.emplace_back(obs_obj);
     }
-
-    // pcl_viewer_->addLine<pcl::PointXYZ>(top_line_pt1_pcl, top_line_pt2_pcl,
-    // 0,
-    //                                       0, 1, "top_line");
-    // pcl_viewer_->addSphere(top_line_pt1_pcl, 0.2, 0.5, 0.5, 0.0,
-    //                        "top_line_sphere1"); // radius, r,g,b
-    // pcl_viewer_->spinOnce();
   }
 
+  // (7) print obstacles
   PrintObstacleParam(obstacle_objs_);
+
+  // return results
   return obstacle_objs_;
 }
 
@@ -570,21 +539,6 @@ CropBoxFilter(pcl::PointCloud<pcl::PointXYZ>::Ptr pc_in, float x_min,
   return pc_out;
 }
 
-// bool isObjValid = false;
-// int ID = 0;
-// ObstacleType type = ObstacleType::OBJ_T_UNKNOWN;
-// double center_x = 0.0;
-// double center_y = 0.0;
-// double center_z = 0.0;
-// double speed_x = 0.0;
-// double speed_y = 0.0;
-// double speed_z = 0.0;
-// double heading = 0.0;
-// double box_length = 1.0;
-// double box_width = 1.0;
-// double box_height = 1.0;
-// float confidence = 0.75F;
-// double time_stamp = 0.0;
 void PrintObstacleParam(const std::vector<ObstacleObj> &obstacle_objs) {
   int obj_idx = 0;
   for (const auto &obj : obstacle_objs) {
@@ -616,11 +570,11 @@ pc_bbox_res compute_pc_2dbbox(pcl::PointCloud<pcl::PointXYZ>::Ptr pc_ptr) {
   float Z_min = pt_min.z;
   float Z_max = pt_max.z;
 
+  // project to XY plane, we don't want to tilt or roll the bbox
   pcl::PointCloud<pcl::PointXYZ> pc_copy = *pc_ptr;
   for (auto &pt : pc_copy) {
     pt.z = 0;
   }
-
 
   // Compute principal directions
   Eigen::Vector4f pcaCentroid;
@@ -631,24 +585,7 @@ pc_bbox_res compute_pc_2dbbox(pcl::PointCloud<pcl::PointXYZ>::Ptr pc_ptr) {
       covariance, Eigen::ComputeEigenvectors);
   Eigen::Matrix3f eigenVectorsPCA = eigen_solver.eigenvectors();
   eigenVectorsPCA.col(2) = eigenVectorsPCA.col(0).cross(eigenVectorsPCA.col(1));
-  /// This line is necessary for proper orientation in some cases. The
-           /// numbers come out the same without it, but
-           ///    the signs are different and the box doesn't get correctly
-           ///    oriented in some cases.
-  /* // Note that getting the eigenvectors can also be obtained via the PCL PCA
-  interface with something like: pcl::PointCloud<pcl::PointXYZ>::Ptr
-  cloudPCAprojection (new pcl::PointCloud<pcl::PointXYZ>);
-  pcl::PCA<pcl::PointXYZ> pca;
-  pca.setInputCloud(cloudSegmented);
-  pca.project(*cloudSegmented, *cloudPCAprojection);
-  std::cerr << std::endl << "EigenVectors: " << pca.getEigenVectors() <<
-  std::endl; std::cerr << std::endl << "EigenValues: " << pca.getEigenValues()
-  << std::endl;
-  // In this case, pca.getEigenVectors() gives similar eigenVectors to
-  eigenVectorsPCA.
-  */
-  // Transform the original cloud to the origin where the principal components
-  // correspond to the axes.
+
   Eigen::Matrix4f projectionTransform(Eigen::Matrix4f::Identity());
   projectionTransform.block<3, 3>(0, 0) = eigenVectorsPCA.transpose();
   projectionTransform.block<3, 1>(0, 3) =
@@ -668,22 +605,7 @@ pc_bbox_res compute_pc_2dbbox(pcl::PointCloud<pcl::PointXYZ>::Ptr pc_ptr) {
   Eigen::Vector3f bboxTransform =
       eigenVectorsPCA * meanDiagonal + pcaCentroid.head<3>();
 
-  // This viewer has 4 windows, but is only showing images in one of them as
-  // written here.
-  // pcl::visualization::PCLVisualizer *visu;
-  // visu = new pcl::visualization::PCLVisualizer(argc, argv, "PlyViewer");
-  // int mesh_vp_1, mesh_vp_2, mesh_vp_3, mesh_vp_4;
-  // visu->createViewPort(0.0, 0.5, 0.5, 1.0, mesh_vp_1);
-  // visu->createViewPort(0.5, 0.5, 1.0, 1.0, mesh_vp_2);
-  // visu->createViewPort(0.0, 0, 0.5, 0.5, mesh_vp_3);
-  // visu->createViewPort(0.5, 0, 1.0, 0.5, mesh_vp_4);
-  // visu->addPointCloud(cloudSegmented,
-  //                     ColorHandlerXYZ(cloudSegmented, 30, 144, 255),
-  //                     "bboxedCloud", mesh_vp_3);
-  // visu->addCube(bboxTransform, bboxQuaternion, maxPoint.x - minPoint.x,
-  //               maxPoint.y - minPoint.y, maxPoint.z - minPoint.z, "bbox",
-  //               mesh_vp_3);
-
+  // in the transformed pc, Z coords might become X
   if (minPoint.x == 0.0) {
     minPoint.x = Z_min;
     maxPoint.x = Z_max;
@@ -707,6 +629,7 @@ pc_bbox_res compute_pc_2dbbox(pcl::PointCloud<pcl::PointXYZ>::Ptr pc_ptr) {
   return bbox;
 }
 
+// get current unix time in double (with milliseconds)
 double time_now() {
   auto time = std::chrono::system_clock::now().time_since_epoch();
   std::chrono::seconds seconds =
