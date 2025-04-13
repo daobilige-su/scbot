@@ -7,7 +7,6 @@
 #include <string>
 
 #include "solar_panel_param_estimator.hpp"
-#include "simple_obstacle_detector.hpp"
 
 using namespace robosense::lidar;
 using namespace pcl::visualization;
@@ -18,20 +17,11 @@ std::shared_ptr<PCLVisualizer> pcl_viewer;
 auto mtx_viewer_ptr = std::make_shared<std::mutex>();
 
 // for simple debug
-// std::string pcap_file_path = "../../../bagfiles/scbot/test01.pcap";
-// std::string pcap_file_path =
-//     "../../../bagfiles/scbot/pcap-20250311-2/pickup_truck_near.pcap";
-std::string pcap_file_path =
-    "../../../bagfiles/scbot/pcap-20250311-1/people_dynamics.pcap";
+std::string pcap_file_path = "../../../bagfiles/scbot/test01.pcap";
 
-bool enable_panel_param_est = false;
-bool enable_obs_det = true;
 scbot::solarPanelParamEstimator paramEst;
+std::vector<float> pose3d_trans_ypr = {0, 1, 1, -M_PI / 2.0, 0, M_PI};
 bool param_est_debug_verbose_flag = false;
-std::vector<float> top_lidar_pose3d_trans_ypr = {0, 1, 1, -M_PI / 2.0, 0, M_PI};
-scbot::SimpleObstacleDetector simObsDet;
-bool obs_det_debug_verbose_flag = false;
-std::vector<float> bottom_lidar_pose3d_trans_ypr = {0, 0, 0, -M_PI / 2.0, 0, M_PI};
 
 SyncQueue<std::shared_ptr<PointCloudMsg>> free_cloud_queue;
 SyncQueue<std::shared_ptr<PointCloudMsg>> stuffed_cloud_queue;
@@ -190,15 +180,8 @@ void processCloud(void) {
     pcl_pointcloud->is_dense = msg->is_dense;
 
     // compute solar panel params
-    if (enable_panel_param_est) {  
-      paramEst.setPc(pcl_pointcloud);
-      auto panel_param = paramEst.getPanelParam();
-    }
-
-    if (enable_obs_det) {
-      simObsDet.setPc(pcl_pointcloud);
-      auto obs_param = simObsDet.getObstacleObjs();
-    }
+    paramEst.setPc(pcl_pointcloud);
+    auto panel_param = paramEst.getPanelParam();
 
     free_cloud_queue.push(msg);
   }
@@ -255,16 +238,10 @@ int main(int argc, char *argv[]) {
   }
 
   // setup paramEst
-  paramEst.setTransform(top_lidar_pose3d_trans_ypr);
+  paramEst.setTransform(pose3d_trans_ypr);
   paramEst.setViewerMutex(mtx_viewer_ptr);
   paramEst.setViewer(pcl_viewer);
   paramEst.setDebugVerbose(param_est_debug_verbose_flag);
-
-  // setup obstacle detector
-  simObsDet.setTransform(bottom_lidar_pose3d_trans_ypr);
-  simObsDet.setViewerMutex(mtx_viewer_ptr);
-  simObsDet.setViewer(pcl_viewer);
-  simObsDet.setDebugVerbose(obs_det_debug_verbose_flag);
 
   // register thread to process point cloud data
   std::thread cloud_handle_thread = std::thread(processCloud);

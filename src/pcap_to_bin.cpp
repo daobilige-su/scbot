@@ -1,13 +1,18 @@
+#include "rs_driver/driver/driver_param.hpp"
+#include <iostream>
+#include <iterator>
 #include <memory>
 #include <rs_driver/api/lidar_driver.hpp>
 #include <rs_driver/msg/pcl_point_cloud_msg.hpp>
 
+#include <filesystem>
+#include <fstream>
+#include <pcl/common/transforms.h>
 #include <pcl/point_types.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <string>
 
-#include "solar_panel_param_estimator.hpp"
-#include "simple_obstacle_detector.hpp"
+#include "pose_transformer.hpp"
 
 using namespace robosense::lidar;
 using namespace pcl::visualization;
@@ -18,20 +23,15 @@ std::shared_ptr<PCLVisualizer> pcl_viewer;
 auto mtx_viewer_ptr = std::make_shared<std::mutex>();
 
 // for simple debug
-// std::string pcap_file_path = "../../../bagfiles/scbot/test01.pcap";
-// std::string pcap_file_path =
-//     "../../../bagfiles/scbot/pcap-20250311-2/pickup_truck_near.pcap";
 std::string pcap_file_path =
     "../../../bagfiles/scbot/pcap-20250311-1/people_dynamics.pcap";
+std::string bin_file_path_folder;
+ofstream binfile;
 
-bool enable_panel_param_est = false;
-bool enable_obs_det = true;
-scbot::solarPanelParamEstimator paramEst;
+Eigen::Matrix4f transform_lidar_robot_kitti = Eigen::Matrix4f::Identity();
+// std::vector<float> pose3d_trans_ypr = {0, 1, 1, -M_PI / 2.0, 0, M_PI}; 
+std::vector<float> pose3d_trans_ypr = {0, 1, 1, 0.0, 0, M_PI}; // lidar points forward
 bool param_est_debug_verbose_flag = false;
-std::vector<float> top_lidar_pose3d_trans_ypr = {0, 1, 1, -M_PI / 2.0, 0, M_PI};
-scbot::SimpleObstacleDetector simObsDet;
-bool obs_det_debug_verbose_flag = false;
-std::vector<float> bottom_lidar_pose3d_trans_ypr = {0, 0, 0, -M_PI / 2.0, 0, M_PI};
 
 SyncQueue<std::shared_ptr<PointCloudMsg>> free_cloud_queue;
 SyncQueue<std::shared_ptr<PointCloudMsg>> stuffed_cloud_queue;
@@ -172,6 +172,7 @@ void pointCloudPutCallback(std::shared_ptr<PointCloudMsg> msg) {
 bool to_exit_process = false;
 
 // process point cloud (will be done in a seperate thread)
+int processed_lidar_num = 0;
 void processCloud(void) {
   while (!to_exit_process) {
     std::shared_ptr<PointCloudMsg> msg = stuffed_cloud_queue.popWait();
@@ -189,15 +190,43 @@ void processCloud(void) {
     pcl_pointcloud->width = msg->width;
     pcl_pointcloud->is_dense = msg->is_dense;
 
-    // compute solar panel params
-    if (enable_panel_param_est) {  
-      paramEst.setPc(pcl_pointcloud);
-      auto panel_param = paramEst.getPanelParam();
+    // transform to kitti like coords
+    pcl::PointCloud<pcl::PointXYZI>::Ptr pc_robot_transformed_ptr(
+        new pcl::PointCloud<pcl::PointXYZI>);
+    pcl::transformPointCloud(*pcl_pointcloud, *pc_robot_transformed_ptr,
+                             transform_lidar_robot_kitti);
+
+    ++processed_lidar_num;
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(5) << processed_lidar_num;
+    std::string bin_file_path = bin_file_path_folder + oss.str() + ".bin";
+    std::cout << "bin_file_path: " << bin_file_path << std::endl;
+    binfile =
+        ofstream(bin_file_path, std::ios_base::out | std::ios_base::binary);
+
+    for (const auto &pt : pc_robot_transformed_ptr->points) {
+      float x = pt.x;
+      float y = pt.y;
+      float z = pt.z;
+      float intensity = pt.intensity;
+
+      binfile.write(reinterpret_cast<char *>(&x), sizeof(x));
+      binfile.write(reinterpret_cast<char *>(&y), sizeof(y));
+      binfile.write(reinterpret_cast<char *>(&z), sizeof(z));
+      binfile.write(reinterpret_cast<char *>(&intensity), sizeof(intensity));
     }
 
-    if (enable_obs_det) {
-      simObsDet.setPc(pcl_pointcloud);
-      auto obs_param = simObsDet.getObstacleObjs();
+    PointCloudColorHandlerGenericField<pcl::PointXYZI> point_color_handle(
+        pc_robot_transformed_ptr, "intensity");
+
+    {
+      const std::lock_guard<std::mutex> lock(*mtx_viewer_ptr);
+      pcl_viewer->removePointCloud("rslidar");
+      pcl_viewer->addPointCloud<pcl::PointXYZI>(pc_robot_transformed_ptr,
+                                                point_color_handle, "rslidar");
+
+      // std::cout << "processed " << ++processed_lidar_num << " frame lidar."
+      //           << std::endl;
     }
 
     free_cloud_queue.push(msg);
@@ -229,7 +258,24 @@ int main(int argc, char *argv[]) {
 
   RSDriverParam param;
   parseParam(argc, argv, param);
+  param.input_param.pcap_repeat = 0; // don't repeat playing
   param.print();
+
+  // handle output file
+  bin_file_path_folder = pcap_file_path;
+  bin_file_path_folder.replace(bin_file_path_folder.end() - 5,
+                               bin_file_path_folder.end(), "/");
+  std::filesystem::path bin_file_path_folder_fspath(bin_file_path_folder);
+  if (!std::filesystem::exists(bin_file_path_folder_fspath)) {
+    std::filesystem::create_directory(bin_file_path_folder_fspath);
+  }
+
+  // handle pc transform to kitti coords
+  Eigen::VectorXf trans_euler(6);
+  trans_euler << pose3d_trans_ypr[0], pose3d_trans_ypr[1], pose3d_trans_ypr[2],
+      pose3d_trans_ypr[3], pose3d_trans_ypr[4], pose3d_trans_ypr[5];
+  poseTransformer::poseTransformer transformer;
+  transform_lidar_robot_kitti = transformer.pose3dEulerToM(trans_euler);
 
   // setup pcl viewer
   pcl_viewer = std::make_shared<PCLVisualizer>("RSPointCloudViewer");
@@ -254,18 +300,6 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-  // setup paramEst
-  paramEst.setTransform(top_lidar_pose3d_trans_ypr);
-  paramEst.setViewerMutex(mtx_viewer_ptr);
-  paramEst.setViewer(pcl_viewer);
-  paramEst.setDebugVerbose(param_est_debug_verbose_flag);
-
-  // setup obstacle detector
-  simObsDet.setTransform(bottom_lidar_pose3d_trans_ypr);
-  simObsDet.setViewerMutex(mtx_viewer_ptr);
-  simObsDet.setViewer(pcl_viewer);
-  simObsDet.setDebugVerbose(obs_det_debug_verbose_flag);
-
   // register thread to process point cloud data
   std::thread cloud_handle_thread = std::thread(processCloud);
 
@@ -273,11 +307,21 @@ int main(int argc, char *argv[]) {
   RS_INFO << "RoboSense Lidar-Driver Viewer start......" << RS_REND;
   driver.start();
 
+  // DeviceStatus dev_st, dev_st_pre;
+  // driver.getDeviceStatus(dev_st);
+  // dev_st_pre = dev_st;
+  // std::cout << "RS driver status: " << dev_st.state << std::endl;
+
   while (!pcl_viewer->wasStopped()) { // show point cloud in pcl viewer
     {
       // const std::lock_guard<std::mutex> lock(mtx_viewer);
       const std::lock_guard<std::mutex> lock(*mtx_viewer_ptr);
       pcl_viewer->spinOnce();
+      // driver.getDeviceStatus(dev_st);
+      // if (dev_st.state != dev_st_pre.state) {
+      //   std::cout << "RS driver status changed!!!" << std::endl;
+      //   std::cout << "RS driver status: " << dev_st.state << std::endl;
+      // }
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -288,6 +332,8 @@ int main(int argc, char *argv[]) {
   // exit
   to_exit_process = true;
   cloud_handle_thread.join();
+
+  // std::cout << "lidar scans are written to: " << bin_file_path << std::endl;
 
   return 0;
 }
