@@ -28,6 +28,8 @@ struct pc_bbox_res {
   pcl::PointXYZ maxPoint;
 };
 pc_bbox_res compute_pc_2dbbox(pcl::PointCloud<pcl::PointXYZ>::Ptr pc_ptr);
+pc_bbox_res
+compute_pc_2dbbox_robot_coord(pcl::PointCloud<pcl::PointXYZ>::Ptr pc_ptr);
 
 // class member function definitions
 
@@ -354,7 +356,12 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
       // pcl_viewer_->setShapeRenderingProperties(
       //     pcl::visualization::PCL_VISUALIZER_REPRESENTATION,
       //     pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME, 0);
-      pc_bbox_res bbox = compute_pc_2dbbox(tmp_pc_sp_ptr);
+      pc_bbox_res bbox;
+      if (use_robot_coord_in_bbox_) {
+        bbox = compute_pc_2dbbox_robot_coord(tmp_pc_sp_ptr);
+      } else {
+        bbox = compute_pc_2dbbox(tmp_pc_sp_ptr);
+      }
       pcl_viewer_->addCube(
           bbox.bboxTransform, bbox.bboxQuaternion,
           bbox.maxPoint.x - bbox.minPoint.x, bbox.maxPoint.y - bbox.minPoint.y,
@@ -394,7 +401,12 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
       pcl_viewer_->addPointCloud<pcl::PointXYZ>(
           tmp_pc_obs_ptr, pc_obs_vec_color_handle, ss.str());
 
-      pc_bbox_res bbox = compute_pc_2dbbox(tmp_pc_obs_ptr);
+      pc_bbox_res bbox;
+      if (use_robot_coord_in_bbox_) {
+        bbox = compute_pc_2dbbox_robot_coord(tmp_pc_obs_ptr);
+      } else {
+        bbox = compute_pc_2dbbox(tmp_pc_obs_ptr);
+      }
       pcl_viewer_->addCube(
           bbox.bboxTransform, bbox.bboxQuaternion,
           bbox.maxPoint.x - bbox.minPoint.x, bbox.maxPoint.y - bbox.minPoint.y,
@@ -493,6 +505,12 @@ bool SimpleObstacleDetector::setTransform(std::vector<float> pose3d_trans_ypr) {
 
 bool SimpleObstacleDetector::setDebugVerbose(bool flag) {
   debug_verbose_ = flag;
+
+  return true;
+}
+
+bool SimpleObstacleDetector::setUseRobotCoordInBbox(bool flag){
+  use_robot_coord_in_bbox_ = flag;
 
   return true;
 }
@@ -619,6 +637,26 @@ pc_bbox_res compute_pc_2dbbox(pcl::PointCloud<pcl::PointXYZ>::Ptr pc_ptr) {
     std::cout << "Err in computing bbox !!!" << std::endl;
   }
   bboxTransform[2] = (Z_min + Z_max) / 2.0;
+
+  pc_bbox_res bbox;
+  bbox.bboxTransform = bboxTransform;
+  bbox.bboxQuaternion = bboxQuaternion;
+  bbox.minPoint = minPoint;
+  bbox.maxPoint = maxPoint;
+
+  return bbox;
+}
+
+pc_bbox_res
+compute_pc_2dbbox_robot_coord(pcl::PointCloud<pcl::PointXYZ>::Ptr pc_ptr) {
+
+  pcl::PointXYZ minPoint, maxPoint;
+  pcl::getMinMax3D(*pc_ptr, minPoint, maxPoint);
+
+  // Final transform
+  const Eigen::Quaternionf bboxQuaternion(1, 0, 0, 0); 
+  Eigen::Vector3f bboxTransform((minPoint.x+maxPoint.x)/2.0, (minPoint.y+maxPoint.y)/2.0, (minPoint.z+maxPoint.z)/2.0);
+  
 
   pc_bbox_res bbox;
   bbox.bboxTransform = bboxTransform;

@@ -30,6 +30,7 @@ scbot::solarPanelParamEstimator paramEst;
 bool param_est_debug_verbose_flag = false;
 std::vector<float> top_lidar_pose3d_trans_ypr = {0, 1, 1, -M_PI / 2.0, 0, M_PI};
 scbot::SimpleObstacleDetector simObsDet;
+bool bbox_in_robot_coord = true;
 bool obs_det_debug_verbose_flag = false;
 std::vector<float> bottom_lidar_pose3d_trans_ypr = {0, 0, 0, -M_PI / 2.0, 0, M_PI};
 
@@ -265,6 +266,7 @@ int main(int argc, char *argv[]) {
   simObsDet.setViewerMutex(mtx_viewer_ptr);
   simObsDet.setViewer(pcl_viewer);
   simObsDet.setDebugVerbose(obs_det_debug_verbose_flag);
+  simObsDet.setUseRobotCoordInBbox(bbox_in_robot_coord);
 
   // register thread to process point cloud data
   std::thread cloud_handle_thread = std::thread(processCloud);

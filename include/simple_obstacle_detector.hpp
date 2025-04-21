@@ -42,6 +42,7 @@ public:
   bool setTransform(std::vector<float> pose3d_trans_ypr);
   bool setPc(pcl::PointCloud<pcl::PointXYZI>::Ptr ptr);
   bool setDebugVerbose(bool flag);
+  bool setUseRobotCoordInBbox(bool flag);
 
   // getters
   const std::vector<ObstacleObj> getObstacleObjs();
@@ -58,6 +59,7 @@ private:
   pcl::PointCloud<pcl::PointXYZ>::Ptr pc_sp_ptr_ = nullptr;
 
   bool debug_verbose_ = true;
+  bool use_robot_coord_in_bbox_ = false;
 };
 } // namespace scbot
 
