@@ -21,8 +21,10 @@ auto mtx_viewer_ptr = std::make_shared<std::mutex>();
 // std::string pcap_file_path = "../../../bagfiles/scbot/test01.pcap";
 // std::string pcap_file_path =
 //     "../../../bagfiles/scbot/pcap-20250311-2/pickup_truck_near.pcap";
+// std::string pcap_file_path =
+//     "../../../bagfiles/scbot/pcap-20250311-1/people_dynamics.pcap";
 std::string pcap_file_path =
-    "../../../bagfiles/scbot/pcap-20250311-1/people_dynamics.pcap";
+    "../../../bagfiles/scbot/people_test_0424.pcap";
 
 bool enable_panel_param_est = false;
 bool enable_obs_det = true;
@@ -32,7 +34,10 @@ std::vector<float> top_lidar_pose3d_trans_ypr = {0, 1, 1, -M_PI / 2.0, 0, M_PI};
 scbot::SimpleObstacleDetector simObsDet;
 bool bbox_in_robot_coord = true;
 bool obs_det_debug_verbose_flag = false;
-std::vector<float> bottom_lidar_pose3d_trans_ypr = {0, 0, 0, -M_PI / 2.0, 0, M_PI};
+// std::vector<float> bottom_lidar_pose3d_trans_ypr = {0,           0, 0,
+//                                                     -M_PI / 2.0, 0, M_PI};
+std::vector<float> bottom_lidar_pose3d_trans_ypr = {0,           -2.6, 2.35,
+                                                    -M_PI / 2.0, 0,    M_PI};
 
 SyncQueue<std::shared_ptr<PointCloudMsg>> free_cloud_queue;
 SyncQueue<std::shared_ptr<PointCloudMsg>> stuffed_cloud_queue;
@@ -128,6 +133,10 @@ void parseParam(int argc, char *argv[], RSDriverParam &param) {
   if (parseArgument(argc, argv, "-yaw", result_str)) {
     param.decoder_param.transform_param.yaw = std::stof(result_str);
   }
+
+  // port reset
+  param.input_param.msop_port = 5599;
+  param.input_param.difop_port = 6688;
 }
 
 void printHelpMenu() {

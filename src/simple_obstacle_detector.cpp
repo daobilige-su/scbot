@@ -62,10 +62,18 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
 
   float pc_robot_frame_x_min = -0.5;
   float pc_robot_frame_x_max = 0.5;
-  float pc_robot_frame_y_min = -0.0;
-  float pc_robot_frame_y_max = 2.0;
-  float pc_robot_frame_z_min = -3.0;
-  float pc_robot_frame_z_max = 3.0;
+  // float pc_robot_frame_y_min = -0.0;
+  // float pc_robot_frame_y_max = 2.0;
+  float pc_robot_frame_y_min = -2.6-0.3;
+  float pc_robot_frame_y_max = 0.0;
+  // float pc_robot_frame_z_min = -3.0;
+  // float pc_robot_frame_z_max = 3.0;
+  float pc_robot_frame_z_min = -0.65;
+  float pc_robot_frame_z_max = 5.35;
+
+  // float floor_z = -2.3;
+  float floor_z = 0.05;
+  float floor_max_height = 0.2;
 
   float plane_seg_dist_thr = 0.05;
 
@@ -127,8 +135,7 @@ const std::vector<ObstacleObj> SimpleObstacleDetector::getObstacleObjs() {
   pcl::PointCloud<pcl::PointXYZ>::Ptr pc_no_ground_ptr(new pcl::PointCloud<pcl::PointXYZ>());
   pcl::PointCloud<pcl::PointXYZ>::Ptr pc_ground_ptr(new pcl::PointCloud<pcl::PointXYZ>());
 
-  float floor_z = -2.3;
-  float floor_max_height = 0.2;
+  
 
   for(const auto& pt : *pc_roi_ptr_){
     if(pt.z>(floor_z+floor_max_height)){
